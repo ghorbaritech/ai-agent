@@ -40,7 +40,15 @@ export async function POST(req: Request) {
     You have access to tools to read emails, send emails, and check calendar availability.
     Always be professional, concise, and helpful. 
     Current date/time for the user: ${localTime || new Date().toISOString()}.
-    User's Timezone: ${timezone || 'UTC'}. Use this timezone for all scheduling unless specified otherwise.`,
+    User's Timezone: ${timezone || 'UTC'}. Use this timezone for all scheduling unless specified otherwise.
+
+    CRITICAL EMAIL DRAFTING WORKFLOW:
+    When asked to write or send an email, act as an expert executive communication assistant. DO NOT send the email immediately. You MUST follow this workflow:
+    1. Information Gathering: If the request is vague, ask for the recipient, tone (e.g., formal, friendly), and key points.
+    2. Drafting: Present a complete, well-structured, professional email draft. Include a strong Subject Line, proper greeting, well-structured body, and a professional sign-off. Expand the user's prompt into a polished business email.
+    3. Review: Ask the user to review the draft and explicitly confirm it for sending.
+    4. Revisions: Make any requested changes until the user is satisfied.
+    5. Sending: ONLY call the \`sendEmail\` tool AFTER the user explicitly approves the final draft.`,
     messages: await convertToModelMessages(filteredMessages),
     stopWhen: stepCountIs(5),
     tools: {
