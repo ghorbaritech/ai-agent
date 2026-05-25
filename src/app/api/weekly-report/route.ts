@@ -4,13 +4,13 @@ import { z } from 'zod';
 import { google } from 'googleapis';
 import { createClient } from '@supabase/supabase-js';
 
-// Initialize Supabase Client
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
-
+// Supabase client will be initialized dynamically in the request handler
 export async function POST(req: Request) {
   try {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+    const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
+
     const { providerToken, email, timezone } = await req.json();
 
     console.log("Weekly Report Generation Requested", {
@@ -163,27 +163,31 @@ export async function POST(req: Request) {
     // Try to insert report into Supabase
     let savedReport = null;
     try {
-      const { data, error } = await supabase
-        .from('weekly_reports')
-        .insert([{
-          agent_id: 'executive-assistant',
-          start_date: startDate.toISOString(),
-          end_date: endDate.toISOString(),
-          received_count: object.receivedCount,
-          read_count: object.readCount,
-          unread_count: object.unreadCount,
-          replied_count: object.repliedCount,
-          important_emails: object.importantEmails,
-          need_attention: object.needAttention,
-          actions: object.actions,
-          report_text: object.reportText
-        }])
-        .select('*');
+      if (supabase) {
+        const { data, error } = await supabase
+          .from('weekly_reports')
+          .insert([{
+            agent_id: 'executive-assistant',
+            start_date: startDate.toISOString(),
+            end_date: endDate.toISOString(),
+            received_count: object.receivedCount,
+            read_count: object.readCount,
+            unread_count: object.unreadCount,
+            replied_count: object.repliedCount,
+            important_emails: object.importantEmails,
+            need_attention: object.needAttention,
+            actions: object.actions,
+            report_text: object.reportText
+          }])
+          .select('*');
 
-      if (error) {
-        console.error("Supabase insert error:", error.message);
-      } else if (data && data.length > 0) {
-        savedReport = data[0];
+        if (error) {
+          console.error("Supabase insert error:", error.message);
+        } else if (data && data.length > 0) {
+          savedReport = data[0];
+        }
+      } else {
+         console.warn("Skipping Supabase insert: Credentials not provided.");
       }
     } catch (dbErr: any) {
       console.error("Database connection error:", dbErr.message);
