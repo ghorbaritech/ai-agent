@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import { useChat } from '@ai-sdk/react';
 import { supabase } from '@/lib/supabaseClient';
+import { WeeklyReportView } from '@/components/WeeklyReportView';
 import { 
   Activity, Zap, Shield, BarChart3, BookOpen, Clock, 
   Play, RotateCcw, Cpu, CheckCircle2, Loader2, Send, 
@@ -236,6 +237,45 @@ export default function AgentDetailPage() {
       if (savedLedger) setLedgerSheetId(savedLedger);
     }
   }, [agentId]);
+
+  const [analyticsSubTab, setAnalyticsSubTab] = useState('Neural Health');
+  const [weeklyReports, setWeeklyReports] = useState<any[]>([]);
+  const [selectedReport, setSelectedReport] = useState<any | null>(null);
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+
+  // Load weekly reports from Supabase or localStorage fallback
+  useEffect(() => {
+    const fetchWeeklyReports = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('weekly_reports')
+          .select('*')
+          .eq('agent_id', 'executive-assistant')
+          .order('created_at', { ascending: false });
+        if (data && data.length > 0) {
+          setWeeklyReports(data);
+          setSelectedReport(data[0]);
+        } else {
+          const localSaved = localStorage.getItem(`weekly_reports_${agentId}_v2`);
+          if (localSaved) {
+            const parsed = JSON.parse(localSaved);
+            setWeeklyReports(parsed);
+            setSelectedReport(parsed[0]);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch reports from DB, falling back:", err);
+        const localSaved = localStorage.getItem(`weekly_reports_${agentId}_v2`);
+        if (localSaved) {
+          const parsed = JSON.parse(localSaved);
+          setWeeklyReports(parsed);
+          setSelectedReport(parsed[0]);
+        }
+      }
+    };
+    fetchWeeklyReports();
+  }, [agentId]);
+
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskPriority, setNewTaskPriority] = useState('Medium');
   const [newTaskType, setNewTaskType] = useState('Autonomous');
@@ -244,13 +284,103 @@ export default function AgentDetailPage() {
 
   const defaultMessage = { 
     id: '1',
-    role: 'assistant', 
-    parts: [{ type: 'text', text: `Welcome to the ${agentName} Studio. I am fully synchronized with your ${currentConfig.grounding.join(' and ')} data feeds. How can I assist with your workflow today?` }]
+    role: 'assistant' as const, 
+    parts: [{ type: 'text' as const, text: `Welcome to the ${agentName} Studio. I am fully synchronized with your ${currentConfig.grounding.join(' and ')} data feeds. How can I assist with your workflow today?` }]
   };
 
   const { messages, setMessages, status, sendMessage, error } = useChat({
     transport: new DefaultChatTransport({ api: '/api/chat' })
   });
+
+  const handleGenerateWeeklyReport = useCallback(async (autoTrigger = false) => {
+    if (isGeneratingReport) return;
+    setIsGeneratingReport(true);
+    try {
+      const res = await fetch('/api/weekly-report', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          providerToken,
+          email: connectEmail,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+        })
+      });
+      const data = await res.json();
+      if (data.success && data.report) {
+        const newReport = data.report;
+        setWeeklyReports(prev => {
+          const updated = [newReport, ...prev];
+          localStorage.setItem(`weekly_reports_${agentId}_v2`, JSON.stringify(updated));
+          return updated;
+        });
+        setSelectedReport(newReport);
+        
+        // Append report as an assistant message in the chat
+        const reportMessage = {
+          id: `report-${Date.now()}`,
+          role: 'assistant' as const,
+          parts: [{ 
+            type: 'text' as const, 
+            text: `### 📊 Weekly Report ${autoTrigger ? '(Auto-generated)' : ''}\n\n${newReport.reportText}` 
+          }]
+        };
+        setMessages(prev => {
+          const updated = [...prev, reportMessage];
+          localStorage.setItem('chat_' + agentId + '_v2', JSON.stringify(updated));
+          return updated;
+        });
+      } else {
+        if (!autoTrigger) {
+          alert(data.error || 'Failed to generate weekly report.');
+        }
+      }
+    } catch (err: any) {
+      console.error(err);
+      if (!autoTrigger) {
+        alert('Error generating report: ' + err.message);
+      }
+    } finally {
+      setIsGeneratingReport(false);
+    }
+  }, [providerToken, connectEmail, agentId, setMessages, isGeneratingReport, weeklyReports]);
+
+  // Helper to calculate the most recent Saturday 10 PM
+  const getMostRecentSaturday10PM = useCallback((now: Date): Date => {
+    const result = new Date(now);
+    const day = result.getDay(); // 0: Sun, 6: Sat
+    const diff = (day + 1) % 7; // Sunday goes back 1 day, Saturday goes back 0
+    result.setDate(result.getDate() - diff);
+    result.setHours(22, 0, 0, 0);
+    // If it is Saturday but before 10 PM, go back 7 days
+    if (day === 6 && now.getHours() < 22) {
+      result.setDate(result.getDate() - 7);
+    }
+    return result;
+  }, []);
+
+  // Monitor Saturday 10 PM scheduled delivery
+  useEffect(() => {
+    if (agentId !== 'executive-assistant') return;
+
+    const checkScheduledDelivery = () => {
+      const now = new Date();
+      const lastSat10PM = getMostRecentSaturday10PM(now);
+      const lastDelivered = localStorage.getItem(`last_report_delivered_${agentId}_v2`);
+
+      if (!lastDelivered || new Date(lastDelivered) < lastSat10PM) {
+        console.log("Saturday 10 PM trigger: Generating and delivering report...");
+        handleGenerateWeeklyReport(true);
+        localStorage.setItem(`last_report_delivered_${agentId}_v2`, lastSat10PM.toISOString());
+      }
+    };
+
+    // Run check on mount and then every 2 minutes
+    checkScheduledDelivery();
+    const interval = setInterval(checkScheduledDelivery, 120000);
+    return () => clearInterval(interval);
+  }, [agentId, getMostRecentSaturday10PM, handleGenerateWeeklyReport]);
 
   // SDK v6: extract tool parts from parts array
   const getToolParts = useCallback((m: any): any[] => {
@@ -281,7 +411,14 @@ export default function AgentDetailPage() {
     const saved = localStorage.getItem(`chat_${agentId}_v2`);
     if (saved) {
       try {
-        const parsed = JSON.parse(saved);
+        const parsed = JSON.parse(saved).map((m: any) => {
+          if (m.parts) return m;
+          const parts = [];
+          if (m.content) {
+            parts.push({ type: 'text', text: m.content });
+          }
+          return { ...m, parts };
+        });
         if (parsed.length > 0) {
           // Pre-populate processed tool calls to prevent duplicate tasks on reload
           parsed.forEach((m: any) => {
@@ -293,8 +430,14 @@ export default function AgentDetailPage() {
             });
           });
           setMessages(parsed);
+        } else {
+          setMessages([defaultMessage]);
         }
-      } catch (e) {}
+      } catch (e) {
+        setMessages([defaultMessage]);
+      }
+    } else {
+      setMessages([defaultMessage]);
     }
   }, [agentId, setMessages, getToolParts]);
 
@@ -694,7 +837,81 @@ export default function AgentDetailPage() {
                       return (
                      <div key={m.id} style={{ alignSelf: m.role === 'assistant' ? 'flex-start' : 'flex-end', maxWidth: '80%', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                        <div style={{ padding: '14px 18px', background: m.role === 'assistant' ? 'rgba(255,255,255,0.03)' : '#2563EB', borderRadius: '16px', borderTopLeftRadius: m.role === 'assistant' ? '4px' : '16px', borderTopRightRadius: m.role === 'user' ? '4px' : '16px', border: m.role === 'assistant' ? '1px solid var(--border-main)' : 'none', fontSize: '14px', lineHeight: '1.5', color: 'white' }}>
-                           {textContent && <div style={{ whiteSpace: 'pre-wrap' }}>{textContent}</div>}
+                            {textContent && (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                {(() => {
+                                  const parseInline = (line: string) => {
+                                    const parts = line.split(/\*\*([^*]+)\*\*/g);
+                                    return parts.map((part, idx) => {
+                                      if (idx % 2 === 1) {
+                                        return <strong key={idx} style={{ color: m.role === 'assistant' ? '#ffffff' : '#e0e7ff', fontWeight: '700' }}>{part}</strong>;
+                                      }
+                                      return part;
+                                    });
+                                  };
+
+                                  const lines = textContent.split('\n');
+                                  const elements: React.ReactNode[] = [];
+                                  let currentList: React.ReactNode[] = [];
+
+                                  const flushList = () => {
+                                    if (currentList.length > 0) {
+                                      elements.push(
+                                        <ul key={`list-${elements.length}`} style={{ paddingLeft: '20px', margin: '4px 0', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                          {currentList}
+                                        </ul>
+                                      );
+                                      currentList = [];
+                                    }
+                                  };
+
+                                  lines.forEach((line, idx) => {
+                                    const trimmed = line.trim();
+                                    if (trimmed.startsWith('* ') || trimmed.startsWith('- ') || trimmed.match(/^\d+\.\s/)) {
+                                      const content = trimmed.startsWith('* ') || trimmed.startsWith('- ') 
+                                        ? trimmed.substring(2) 
+                                        : trimmed.replace(/^\d+\.\s/, '');
+                                      currentList.push(
+                                        <li key={`li-${idx}`} style={{ lineHeight: '1.5' }}>
+                                          {parseInline(content)}
+                                        </li>
+                                      );
+                                    } else {
+                                      flushList();
+                                      if (trimmed.startsWith('# ')) {
+                                        elements.push(
+                                          <h4 key={idx} style={{ fontSize: '15px', fontWeight: '800', margin: '12px 0 6px 0', color: 'white' }}>
+                                            {parseInline(trimmed.substring(2))}
+                                          </h4>
+                                        );
+                                      } else if (trimmed.startsWith('## ')) {
+                                        elements.push(
+                                          <h5 key={idx} style={{ fontSize: '13px', fontWeight: '700', margin: '10px 0 4px 0', color: 'white' }}>
+                                            {parseInline(trimmed.substring(3))}
+                                          </h5>
+                                        );
+                                      } else if (trimmed.startsWith('>')) {
+                                        elements.push(
+                                          <div key={idx} style={{ borderLeft: '3px solid rgba(255,255,255,0.3)', paddingLeft: '10px', margin: '8px 0', fontStyle: 'italic', opacity: 0.8 }}>
+                                            {parseInline(trimmed.substring(1).trim())}
+                                          </div>
+                                        );
+                                      } else if (trimmed === '') {
+                                        elements.push(<div key={idx} style={{ height: '4px' }} />);
+                                      } else {
+                                        elements.push(
+                                          <p key={idx} style={{ margin: '2px 0', lineHeight: '1.5' }}>
+                                            {parseInline(trimmed)}
+                                          </p>
+                                        );
+                                      }
+                                    }
+                                  });
+                                  flushList();
+                                  return elements;
+                                })()}
+                              </div>
+                            )}
 
                            {toolParts.map((part: any, index: number) => {
                              // SDK v6: toolName lives on the part directly
@@ -1500,135 +1717,173 @@ export default function AgentDetailPage() {
 
          {/* ANALYTICS TAB (HIGH-FIDELITY) */}
          {activeTab === 'Analytics' && (
-           <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
-              <div className="flex-between">
-                 <div>
-                    <h2 style={{ fontSize: '18px', fontWeight: '800' }}>Intelligence Dashboard</h2>
-                    <p className="text-sm" style={{ opacity: 0.5 }}>Real-time performance metrics and neural health tracking</p>
-                 </div>
-                 <div className="flex-items-center" style={{ gap: '12px' }}>
-                    <button className="btn-secondary flex-items-center" style={{ gap: '8px', fontSize: '12px' }}>
-                       <Cloud size={14} /> Export Data
-                    </button>
-                    <select className="btn-secondary" style={{ fontSize: '12px', background: 'var(--border-main)', padding: '8px 16px' }}>
-                       <option>Last 30 Days</option>
-                       <option>Last 7 Days</option>
-                       <option>Last 24 Hours</option>
-                    </select>
-                 </div>
-              </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
+               <div className="flex-between">
+                  <div>
+                     <h2 style={{ fontSize: '18px', fontWeight: '800' }}>Intelligence Dashboard</h2>
+                     <p className="text-sm" style={{ opacity: 0.5 }}>Real-time performance metrics and neural health tracking</p>
+                  </div>
+                  <div className="flex-items-center" style={{ gap: '12px' }}>
+                     <button className="btn-secondary flex-items-center" style={{ gap: '8px', fontSize: '12px' }}>
+                        <Cloud size={14} /> Export Data
+                     </button>
+                     <select className="btn-secondary" style={{ fontSize: '12px', background: 'var(--border-main)', padding: '8px 16px' }}>
+                        <option>Last 30 Days</option>
+                        <option>Last 7 Days</option>
+                        <option>Last 24 Hours</option>
+                     </select>
+                  </div>
+               </div>
 
-              {/* Metric Cards */}
-               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px' }}>
-                 {[
-                   { label: 'Logic Accuracy', value: '98.4%', trend: '+2.1%', icon: BrainCircuit, color: '#3b82f6' },
-                   { label: 'Tasks Automated', value: tasks.length.toString(), trend: '+1', icon: Zap, color: '#10b981' },
-                   { label: 'Completed Tasks', value: tasks.filter(t => t.status === 'Completed').length.toString(), trend: '+1', icon: Clock, color: '#f59e0b' },
-                   { label: 'Resource Efficiency', value: '92%', trend: '+5%', icon: ShieldCheck, color: '#8b5cf6' },
-                 ].map((stat, i) => {
-                    const Icon = stat.icon;
-                    return (
-                      <div key={i} className="stat-card" style={{ padding: '24px' }}>
-                         <div className="flex-between" style={{ marginBottom: '16px' }}>
-                            <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: `${stat.color}10`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: stat.color }}>
-                               <Icon size={20} />
+               {/* Sub-tab Navigation */}
+               <div style={{ display: 'flex', gap: '20px', borderBottom: '1px solid var(--border-main)', paddingBottom: '4px' }}>
+                  {['Neural Health', 'Weekly Report'].map(subTab => (
+                     <button
+                        key={subTab}
+                        onClick={() => setAnalyticsSubTab(subTab)}
+                        style={{
+                           padding: '12px 16px',
+                           background: 'transparent',
+                           border: 'none',
+                           borderBottom: analyticsSubTab === subTab ? '2px solid #3b82f6' : '2px solid transparent',
+                           color: analyticsSubTab === subTab ? '#3b82f6' : 'var(--text-muted)',
+                           fontWeight: analyticsSubTab === subTab ? '700' : '500',
+                           fontSize: '13px',
+                           cursor: 'pointer',
+                           transition: 'all 0.2s ease',
+                           marginBottom: '-1px'
+                        }}
+                     >
+                        {subTab}
+                     </button>
+                  ))}
+               </div>
+
+               {analyticsSubTab === 'Neural Health' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
+                     {/* Metric Cards */}
+                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px' }}>
+                       {[
+                         { label: 'Logic Accuracy', value: '98.4%', trend: '+2.1%', icon: BrainCircuit, color: '#3b82f6' },
+                         { label: 'Tasks Automated', value: tasks.length.toString(), trend: '+1', icon: Zap, color: '#10b981' },
+                         { label: 'Completed Tasks', value: tasks.filter(t => t.status === 'Completed').length.toString(), trend: '+1', icon: Clock, color: '#f59e0b' },
+                         { label: 'Resource Efficiency', value: '92%', trend: '+5%', icon: ShieldCheck, color: '#8b5cf6' },
+                       ].map((stat, i) => {
+                          const Icon = stat.icon;
+                          return (
+                            <div key={i} className="stat-card" style={{ padding: '24px' }}>
+                               <div className="flex-between" style={{ marginBottom: '16px' }}>
+                                  <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: `${stat.color}10`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: stat.color }}>
+                                     <Icon size={20} />
+                                  </div>
+                                  <span style={{ fontSize: '11px', fontWeight: '800', color: '#10b981' }}>{stat.trend}</span>
+                               </div>
+                               <p style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', opacity: 0.5, letterSpacing: '0.05em', marginBottom: '4px' }}>{stat.label}</p>
+                               <p style={{ fontSize: '28px', fontWeight: '800' }}>{stat.value}</p>
                             </div>
-                            <span style={{ fontSize: '11px', fontWeight: '800', color: '#10b981' }}>{stat.trend}</span>
-                         </div>
-                         <p style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', opacity: 0.5, letterSpacing: '0.05em', marginBottom: '4px' }}>{stat.label}</p>
-                         <p style={{ fontSize: '28px', fontWeight: '800' }}>{stat.value}</p>
-                      </div>
-                    );
-                 })}
-              </div>
+                          );
+                       })}
+                     </div>
 
-              {/* Performance Chart & Grounding Heatmap */}
-              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '32px' }}>
-                 <div className="stat-card" style={{ minHeight: '400px', padding: '32px' }}>
-                    <div className="flex-between" style={{ marginBottom: '32px' }}>
-                       <div>
-                          <h3 style={{ fontSize: '16px', fontWeight: '700' }}>Neural Execution Trends</h3>
-                          <p className="text-sm" style={{ opacity: 0.5 }}>Daily task volume vs completion speed</p>
-                       </div>
-                       <div style={{ display: 'flex', gap: '12px' }}>
-                          <div className="flex-items-center" style={{ gap: '6px' }}>
-                             <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#3b82f6' }} />
-                             <span style={{ fontSize: '11px', opacity: 0.6 }}>Volume</span>
-                          </div>
-                          <div className="flex-items-center" style={{ gap: '6px' }}>
-                             <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981' }} />
-                             <span style={{ fontSize: '11px', opacity: 0.6 }}>Accuracy</span>
-                          </div>
-                       </div>
-                    </div>
-                    <div style={{ height: '240px', width: '100%', display: 'flex', alignItems: 'flex-end', gap: '8px', position: 'relative' }}>
-                       {[45, 60, 40, 85, 70, 95, 80, 100, 75, 90, 85, 95].map((h, i) => (
-                         <div key={i} style={{ flex: 1, position: 'relative', height: '100%' }}>
-                            <div style={{ position: 'absolute', bottom: 0, width: '100%', height: `${h}%`, background: i === 11 ? 'linear-gradient(to top, #3b82f6, #60a5fa)' : 'rgba(255,255,255,0.03)', borderRadius: '4px 4px 0 0', transition: 'all 0.3s ease' }} />
-                            {i > 0 && (
-                              <div style={{ position: 'absolute', bottom: `${h-2}%`, left: '-50%', width: '100%', height: '2px', background: '#10b981', opacity: 0.5, borderRadius: '2px' }} />
-                            )}
-                         </div>
-                       ))}
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '16px', padding: '0 4px' }}>
-                       {['01', '05', '10', '15', '20', '25', '30'].map(d => (
-                         <span key={d} style={{ fontSize: '10px', opacity: 0.4 }}>MAY {d}</span>
-                       ))}
-                    </div>
-                 </div>
-
-                 <div className="stat-card" style={{ padding: '32px' }}>
-                    <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '24px' }}>Grounding Utilization</h3>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                       {currentConfig.grounding.map((source: string, i: number) => {
-                         const percentages = [85, 65, 45, 30, 20];
-                         const p = percentages[i] || 15;
-                         return (
-                           <div key={source}>
-                              <div className="flex-between" style={{ marginBottom: '8px' }}>
-                                 <span style={{ fontSize: '12px', opacity: 0.6 }}>{source}</span>
-                                 <span style={{ fontSize: '12px', fontWeight: '700' }}>{p}%</span>
+                     {/* Performance Chart & Grounding Heatmap */}
+                     <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '32px' }}>
+                        <div className="stat-card" style={{ minHeight: '400px', padding: '32px' }}>
+                           <div className="flex-between" style={{ marginBottom: '32px' }}>
+                              <div>
+                                 <h3 style={{ fontSize: '16px', fontWeight: '700' }}>Neural Execution Trends</h3>
+                                 <p className="text-sm" style={{ opacity: 0.5 }}>Daily task volume vs completion speed</p>
                               </div>
-                              <div style={{ height: '6px', width: '100%', background: 'rgba(255,255,255,0.03)', borderRadius: '100px', overflow: 'hidden' }}>
-                                 <div style={{ height: '100%', width: `${p}%`, background: 'linear-gradient(to right, #3b82f6, #8b5cf6)', borderRadius: '100px' }} />
+                              <div style={{ display: 'flex', gap: '12px' }}>
+                                 <div className="flex-items-center" style={{ gap: '6px' }}>
+                                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#3b82f6' }} />
+                                    <span style={{ fontSize: '11px', opacity: 0.6 }}>Volume</span>
+                                 </div>
+                                 <div className="flex-items-center" style={{ gap: '6px' }}>
+                                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981' }} />
+                                    <span style={{ fontSize: '11px', opacity: 0.6 }}>Accuracy</span>
+                                 </div>
                               </div>
                            </div>
-                         );
-                       })}
-                    </div>
-                    
-                    <div style={{ marginTop: '32px', padding: '20px', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid var(--border-main)' }}>
-                       <div className="flex-items-center" style={{ gap: '10px', marginBottom: '12px' }}>
-                          <Shield size={16} color="#10b981" />
-                          <span style={{ fontSize: '12px', fontWeight: '800' }}>Trust Score</span>
-                       </div>
-                       <p style={{ fontSize: '24px', fontWeight: '800', marginBottom: '4px' }}>9.8 <span style={{ fontSize: '12px', opacity: 0.4 }}>/ 10</span></p>
-                       <p style={{ fontSize: '11px', opacity: 0.5 }}>High confidence grounding across all {currentConfig.grounding.length} sources.</p>
-                    </div>
-                 </div>
-              </div>
+                           <div style={{ height: '240px', width: '100%', display: 'flex', alignItems: 'flex-end', gap: '8px', position: 'relative' }}>
+                              {[45, 60, 40, 85, 70, 95, 80, 100, 75, 90, 85, 95].map((h, i) => (
+                                <div key={i} style={{ flex: 1, position: 'relative', height: '100%' }}>
+                                   <div style={{ position: 'absolute', bottom: 0, width: '100%', height: `${h}%`, background: i === 11 ? 'linear-gradient(to top, #3b82f6, #60a5fa)' : 'rgba(255,255,255,0.03)', borderRadius: '4px 4px 0 0', transition: 'all 0.3s ease' }} />
+                                   {i > 0 && (
+                                     <div style={{ position: 'absolute', bottom: `${h-2}%`, left: '-50%', width: '100%', height: '2px', background: '#10b981', opacity: 0.5, borderRadius: '2px' }} />
+                                   )}
+                                </div>
+                              ))}
+                           </div>
+                           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '16px', padding: '0 4px' }}>
+                              {['01', '05', '10', '15', '20', '25', '30'].map(d => (
+                                <span key={d} style={{ fontSize: '10px', opacity: 0.4 }}>MAY {d}</span>
+                              ))}
+                           </div>
+                        </div>
 
-              {/* Logic Execution Logs */}
-              <div className="stat-card" style={{ padding: '32px' }}>
-                 <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '24px' }}>Neural Execution Logs</h3>
-                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', background: 'var(--border-main)', borderRadius: '8px', overflow: 'hidden' }}>
-                    {tasks.slice(0, 4).map((task, i) => (
-                      <div key={i} className="flex-between" style={{ background: '#02040a', padding: '16px 24px', fontSize: '13px' }}>
-                         <div style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
-                            <span style={{ fontFamily: 'monospace', fontSize: '11px', opacity: 0.4 }}>{task.deadline || 'Today'}</span>
-                            <span style={{ fontWeight: '700' }}>{task.title}</span>
-                            <div style={{ padding: '4px 8px', borderRadius: '4px', background: 'rgba(255,255,255,0.03)', fontSize: '11px', opacity: 0.6 }}>{task.status}</div>
-                         </div>
-                         <div className="flex-items-center" style={{ gap: '24px' }}>
-                            <span style={{ fontSize: '11px', fontWeight: '800', color: task.status === 'Completed' ? '#10b981' : task.status === 'Pending' ? '#f59e0b' : '#3b82f6' }}>{task.status === 'Completed' ? 'Success' : task.status}</span>
-                            <span style={{ fontSize: '11px', opacity: 0.4 }}>99% Conf.</span>
-                         </div>
-                      </div>
-                    ))}
-                 </div>
-              </div>
-           </div>
+                        <div className="stat-card" style={{ padding: '32px' }}>
+                           <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '24px' }}>Grounding Utilization</h3>
+                           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                              {currentConfig.grounding.map((source: string, i: number) => {
+                                const percentages = [85, 65, 45, 30, 20];
+                                const p = percentages[i] || 15;
+                                return (
+                                  <div key={source}>
+                                     <div className="flex-between" style={{ marginBottom: '8px' }}>
+                                        <span style={{ fontSize: '12px', opacity: 0.6 }}>{source}</span>
+                                        <span style={{ fontSize: '12px', fontWeight: '700' }}>{p}%</span>
+                                     </div>
+                                     <div style={{ height: '6px', width: '100%', background: 'rgba(255,255,255,0.03)', borderRadius: '100px', overflow: 'hidden' }}>
+                                        <div style={{ height: '100%', width: `${p}%`, background: 'linear-gradient(to right, #3b82f6, #8b5cf6)', borderRadius: '100px' }} />
+                                     </div>
+                                  </div>
+                                );
+                              })}
+                           </div>
+                           
+                           <div style={{ marginTop: '32px', padding: '20px', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid var(--border-main)' }}>
+                              <div className="flex-items-center" style={{ gap: '10px', marginBottom: '12px' }}>
+                                 <Shield size={16} color="#10b981" />
+                                 <span style={{ fontSize: '12px', fontWeight: '800' }}>Trust Score</span>
+                              </div>
+                              <p style={{ fontSize: '24px', fontWeight: '800', marginBottom: '4px' }}>9.8 <span style={{ fontSize: '12px', opacity: 0.4 }}>/ 10</span></p>
+                              <p style={{ fontSize: '11px', opacity: 0.5 }}>High confidence grounding across all {currentConfig.grounding.length} sources.</p>
+                           </div>
+                        </div>
+                     </div>
+
+                     {/* Logic Execution Logs */}
+                     <div className="stat-card" style={{ padding: '32px' }}>
+                        <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '24px' }}>Neural Execution Logs</h3>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', background: 'var(--border-main)', borderRadius: '8px', overflow: 'hidden' }}>
+                           {tasks.slice(0, 4).map((task, i) => (
+                             <div key={i} className="flex-between" style={{ background: '#02040a', padding: '16px 24px', fontSize: '13px' }}>
+                                <div style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
+                                   <span style={{ fontFamily: 'monospace', fontSize: '11px', opacity: 0.4 }}>{task.deadline || 'Today'}</span>
+                                   <span style={{ fontWeight: '700' }}>{task.title}</span>
+                                   <div style={{ padding: '4px 8px', borderRadius: '4px', background: 'rgba(255,255,255,0.03)', fontSize: '11px', opacity: 0.6 }}>{task.status}</div>
+                                </div>
+                                <div className="flex-items-center" style={{ gap: '24px' }}>
+                                   <span style={{ fontSize: '11px', fontWeight: '800', color: task.status === 'Completed' ? '#10b981' : task.status === 'Pending' ? '#f59e0b' : '#3b82f6' }}>{task.status === 'Completed' ? 'Success' : task.status}</span>
+                                   <span style={{ fontSize: '11px', opacity: 0.4 }}>99% Conf.</span>
+                                </div>
+                             </div>
+                           ))}
+                        </div>
+                     </div>
+                  </div>
+               )}
+
+               {analyticsSubTab === 'Weekly Report' && (
+                  <WeeklyReportView
+                     weeklyReports={weeklyReports}
+                     selectedReport={selectedReport}
+                     setSelectedReport={setSelectedReport}
+                     isGeneratingReport={isGeneratingReport}
+                     onGenerateReport={() => handleGenerateWeeklyReport(false)}
+                  />
+               )}
+            </div>
          )}
 
          {/* REAL WORLD DATA TAB (REFINED) */}

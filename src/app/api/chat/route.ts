@@ -2,9 +2,13 @@ import { streamText, tool, stepCountIs, zodSchema, convertToModelMessages } from
 import { google as googleAI } from '@ai-sdk/google';
 import { z } from 'zod';
 import { google } from 'googleapis';
+import { Readable } from 'stream';
+import Papa from 'papaparse';
+import { ConnectorFactory } from '../../../lib/financials/ConnectorFactory';
+import { Transaction } from '../../../lib/financials/IConnector';
 
 export async function POST(req: Request) {
-  const { messages, providerToken, email, agentName, agentId, timezone, localTime } = await req.json();
+  const { messages, providerToken, email, agentName, agentId, timezone, localTime, spreadsheetId: reqSpreadsheetId } = await req.json();
 
   console.log("Chat Request Received:", { 
     messageCount: messages?.length, 
@@ -22,9 +26,52 @@ export async function POST(req: Request) {
   // SDK v6: messages arrive as UIMessage[] with parts arrays.
   // Strip the initial assistant greeting (no tool history in it) to keep the
   // first user message first, which is required by most model APIs.
+  // Normalize messages to ensure they all contain 'parts' (essential for SDK v6 compat)
   const filteredMessages = (messages || []).filter(
     (m: any, i: number) => !(i === 0 && m.role === 'assistant')
-  );
+  ).map((m: any) => {
+    if (m.parts) return m;
+    const parts = [];
+    if (typeof m.content === 'string' && m.content) {
+      parts.push({ type: 'text', text: m.content });
+    } else if (Array.isArray(m.content)) {
+      parts.push(...m.content.map((c: any) => {
+        if (typeof c === 'string') return { type: 'text', text: c };
+        return c;
+      }));
+    }
+    return {
+      ...m,
+      parts: parts.length > 0 ? parts : [{ type: 'text', text: '' }]
+    };
+  });
+
+  // Extract latest uploaded image
+  let latestFileBase64: string | null = null;
+  let latestMimeType: string = 'image/jpeg';
+  for (let i = filteredMessages.length - 1; i >= 0; i--) {
+     const msg = filteredMessages[i];
+     if (msg.role === 'user') {
+       const imagePart = msg.parts?.find((p: any) => p.type === 'image' || p.type === 'file');
+       if (imagePart && (imagePart.image || imagePart.data)) {
+          let rawData = imagePart.image || imagePart.data;
+          if (typeof rawData === 'string') {
+            if (rawData.startsWith('data:')) {
+              const match = rawData.match(/^data:(.*?);base64,(.*)$/);
+              if (match) {
+                latestMimeType = match[1];
+                latestFileBase64 = match[2];
+              } else {
+                latestFileBase64 = rawData;
+              }
+            } else {
+              latestFileBase64 = rawData;
+            }
+          }
+          break;
+       }
+     }
+  }
 
   // Initialize Google OAuth client if token is provided
   const oauth2Client = new google.auth.OAuth2();
@@ -243,136 +290,200 @@ export async function POST(req: Request) {
           }
         }
       }),
-      addTransaction: tool({
-        description: 'Log a new transaction (Income or Expense) into the Financial Ledger.',
+      uploadReceiptToDrive: tool({
+        description: 'Uploads a provided receipt or document to Google Drive and returns a reference link. Call this when the user shares a receipt.',
         inputSchema: zodSchema(z.object({
-          spreadsheetId: z.string().describe('The ID of the Google Sheet'),
+          filename: z.string().describe('The name of the file being uploaded (e.g. receipt_2024.jpg)')
+        })),
+        execute: async ({ filename }): Promise<any> => {
+          if (!providerToken) return { error: 'Not connected to Google.' };
+          if (!latestFileBase64) return { error: 'No image or file found in the recent chat messages.' };
+
+          try {
+            const drive = google.drive({ version: 'v3', auth: oauth2Client });
+            
+            // Find or create "AgentCore Receipts" folder
+            const folderName = 'AgentCore Receipts';
+            let folderId = '';
+            
+            const folderRes = await drive.files.list({
+              q: `mimeType='application/vnd.google-apps.folder' and name='${folderName}' and trashed=false`,
+              fields: 'files(id, name)',
+              spaces: 'drive'
+            });
+            
+            if (folderRes.data.files && folderRes.data.files.length > 0) {
+              folderId = folderRes.data.files[0].id!;
+            } else {
+              const createRes = await drive.files.create({
+                requestBody: {
+                  name: folderName,
+                  mimeType: 'application/vnd.google-apps.folder'
+                },
+                fields: 'id'
+              });
+              folderId = createRes.data.id!;
+            }
+
+            // Upload the file
+            const fileMetadata = {
+              name: filename,
+              parents: [folderId]
+            };
+            
+            const media = {
+              mimeType: latestMimeType,
+              body: Readable.from(Buffer.from(latestFileBase64, 'base64'))
+            };
+            
+            const uploadRes = await drive.files.create({
+              requestBody: fileMetadata,
+              media: media,
+              fields: 'id, webViewLink'
+            });
+            
+            // Make file publicly readable for easy access via link
+            if (uploadRes.data.id) {
+              await drive.permissions.create({
+                fileId: uploadRes.data.id,
+                requestBody: { role: 'reader', type: 'anyone' }
+              });
+            }
+
+            return { 
+              success: true, 
+              url: uploadRes.data.webViewLink, 
+              message: `Receipt ${filename} successfully uploaded to Google Drive.` 
+            };
+          } catch (error: any) {
+            console.error("Drive Upload Error:", error);
+            return { error: 'Failed to upload receipt: ' + error.message };
+          }
+        }
+      }),
+      recordTransaction: tool({
+        description: 'Log a new transaction (Income or Expense) into the active Financial Ledger (Sheets or ERP).',
+        inputSchema: zodSchema(z.object({
+          connectorType: z.enum(['sheets', 'qbo']).describe('The active integration type'),
           date: z.string().describe('Date of transaction (YYYY-MM-DD)'),
           type: z.enum(['Income', 'Expense']).describe('Type of transaction'),
           category: z.string().describe('Category (e.g., Marketing, Software, Sales)'),
           description: z.string().describe('Short description of the transaction'),
-          amount: z.number().describe('Amount as a positive number')
+          amount: z.number().describe('Amount as a positive number'),
+          referenceUrl: z.string().optional().describe('Link to the receipt in Google Drive')
         })),
-        execute: async ({ spreadsheetId, date, type, category, description, amount }): Promise<any> => {
-          if (!providerToken) return { error: 'Not connected to Google.' };
+        execute: async ({ connectorType, date, type, category, description, amount, referenceUrl }): Promise<any> => {
           try {
-            const sheets = google.sheets({ version: 'v4', auth: oauth2Client });
-            await sheets.spreadsheets.values.append({
-              spreadsheetId,
-              range: 'Transactions!A:E',
-              valueInputOption: 'USER_ENTERED',
-              insertDataOption: 'INSERT_ROWS',
-              requestBody: {
-                values: [[date, type, category, description, amount]]
-              }
-            });
-            return { success: true, message: `Added ${type} of $${amount} to Ledger.` };
+            const connector = ConnectorFactory.getConnector(connectorType);
+            const transaction: Transaction = { date, type, category, description, amount, referenceUrl };
+            const config = { spreadsheetId: reqSpreadsheetId, oauth2Client };
+            const result = await connector.addTransaction(transaction, config);
+            return result;
           } catch (error: any) {
             return { error: 'Failed to add transaction: ' + error.message };
           }
         }
       }),
-      queryFinancials: tool({
-        description: 'Read the financial ledger to aggregate totals or find specific transactions.',
+      generateFinancialReport: tool({
+        description: 'Read the financial ledger to aggregate totals or generate a PnL/Cashflow statement.',
         inputSchema: zodSchema(z.object({
-          spreadsheetId: z.string().describe('The ID of the Google Sheet')
+          connectorType: z.enum(['sheets', 'qbo']).describe('The active integration type')
         })),
-        execute: async ({ spreadsheetId }): Promise<any> => {
-          if (!providerToken) return { error: 'Not connected to Google.' };
+        execute: async ({ connectorType }): Promise<any> => {
           try {
-            const sheets = google.sheets({ version: 'v4', auth: oauth2Client });
-            const res = await sheets.spreadsheets.values.get({
-              spreadsheetId,
-              range: 'Transactions!A:E',
-            });
-            const rows = res.data.values;
-            if (!rows || rows.length <= 1) return { transactions: [], summary: "No data found." };
-            
-            // Basic mapping
-            const headers = rows[0];
-            const data = rows.slice(1).map(row => {
-              return {
-                date: row[0] || '',
-                type: row[1] || '',
-                category: row[2] || '',
-                description: row[3] || '',
-                amount: parseFloat(row[4] || '0')
-              };
-            });
-            
-            // Simple aggregation
-            let totalIncome = 0;
-            let totalExpense = 0;
-            data.forEach(t => {
-              if (t.type === 'Income') totalIncome += t.amount;
-              if (t.type === 'Expense') totalExpense += t.amount;
-            });
-            
-            return { 
-              totalIncome, 
-              totalExpense, 
-              netCash: totalIncome - totalExpense,
-              transactions: data 
-            };
+            const connector = ConnectorFactory.getConnector(connectorType);
+            const summary = await connector.getFinancialSummary({ spreadsheetId: reqSpreadsheetId, oauth2Client });
+            return summary;
           } catch (error: any) {
-            return { error: 'Failed to query financials: ' + error.message };
+            return { error: 'Failed to generate financial report: ' + error.message };
           }
         }
       }),
-      checkBalanceAndAlerts: tool({
-        description: 'Analyze the ledger to calculate the current balance, detect anomalies (like sudden large expenses), and generate a cash flow forecast.',
+      queryFinancials: tool({
+        description: 'Analyze the ledger to calculate the current balance, detect anomalies (like sudden large expenses), and generate alerts.',
         inputSchema: zodSchema(z.object({
-          spreadsheetId: z.string().describe('The ID of the Google Sheet')
+          connectorType: z.enum(['sheets', 'qbo']).describe('The active integration type')
         })),
-        execute: async ({ spreadsheetId }): Promise<any> => {
-          if (!providerToken) return { error: 'Not connected to Google.' };
+        execute: async ({ connectorType }): Promise<any> => {
           try {
-            const sheets = google.sheets({ version: 'v4', auth: oauth2Client });
-            const res = await sheets.spreadsheets.values.get({
-              spreadsheetId,
-              range: 'Transactions!A:E',
-            });
-            const rows = res.data.values;
-            if (!rows || rows.length <= 1) return { balance: 0, alerts: ["No transaction history found."] };
-            
-            const data = rows.slice(1).map(row => ({
-              date: row[0] || '',
-              type: row[1] || '',
-              category: row[2] || '',
-              description: row[3] || '',
-              amount: parseFloat(row[4] || '0')
-            }));
-            
-            let balance = 0;
-            let expenses: any[] = [];
-            data.forEach(t => {
-              if (t.type === 'Income') balance += t.amount;
-              if (t.type === 'Expense') {
-                 balance -= t.amount;
-                 expenses.push(t);
-              }
-            });
-            
-            // Anomaly Detection: An expense larger than 3x the average
-            const avgExpense = expenses.length ? expenses.reduce((a, b) => a + b.amount, 0) / expenses.length : 0;
-            const anomalies = expenses.filter(e => e.amount > avgExpense * 3);
-            const alerts = anomalies.map(a => `Anomaly detected: Large expense of $${a.amount} on ${a.date} for ${a.description}.`);
-            
-            if (balance < 1000) {
-               alerts.push(`Low balance warning: Current balance is $${balance}. Please review upcoming liabilities.`);
-            }
-            if (alerts.length === 0) {
-               alerts.push("No anomalies detected. Cash flow looks stable.");
-            }
-            
-            return { 
-              currentBalance: balance, 
-              averageExpense: avgExpense.toFixed(2),
-              alerts,
-              forecast: `Based on average spending, expect a monthly burn rate of ~$${(avgExpense * 30).toFixed(2)}.`
-            };
+            const connector = ConnectorFactory.getConnector(connectorType);
+            const alerts = await connector.getAlerts({ spreadsheetId: reqSpreadsheetId, oauth2Client });
+            return alerts;
           } catch (error: any) {
             return { error: 'Failed to check balance: ' + error.message };
+          }
+        }
+      }),
+      process_bulk_journal: tool({
+        description: 'Process a bulk journal export (CSV format) uploaded by the user and import the transactions into the ledger.',
+        inputSchema: zodSchema(z.object({
+          connectorType: z.enum(['sheets', 'qbo']).describe('The active integration type'),
+          filename: z.string().describe('The name of the CSV file being uploaded')
+        })),
+        execute: async ({ connectorType, filename }): Promise<any> => {
+          if (!latestFileBase64) return { error: 'No file found in the recent chat messages.' };
+          
+          try {
+            // Convert base64 to string for parsing
+            const csvText = Buffer.from(latestFileBase64, 'base64').toString('utf-8');
+            
+            // Parse CSV using PapaParse
+            const parseResult = Papa.parse(csvText, { header: true, skipEmptyLines: true });
+            if (parseResult.errors.length > 0 && !parseResult.data.length) {
+               return { error: 'Failed to parse CSV.', details: parseResult.errors };
+            }
+            
+            // Map rows to our Transaction format
+            // Assumes standard CSV columns like Date, Description, Amount or Debit/Credit
+            const mappedTransactions: Transaction[] = parseResult.data.map((row: any) => {
+              // Try to find common date columns
+              const rawDate = row['Date'] || row['date'] || row['Transaction Date'] || new Date().toISOString().split('T')[0];
+              
+              // Handle Amount / Debit / Credit columns
+              let amount = 0;
+              let type: 'Income' | 'Expense' = 'Expense';
+              
+              if (row['Amount']) {
+                amount = parseFloat(row['Amount']);
+                if (amount > 0) type = 'Income';
+                if (amount < 0) { type = 'Expense'; amount = Math.abs(amount); }
+              } else if (row['Credit'] && parseFloat(row['Credit']) > 0) {
+                amount = parseFloat(row['Credit']);
+                type = 'Income';
+              } else if (row['Debit'] && parseFloat(row['Debit']) > 0) {
+                amount = parseFloat(row['Debit']);
+                type = 'Expense';
+              }
+              
+              // Find description
+              const description = row['Description'] || row['Memo'] || row['Payee'] || 'Bulk Imported Transaction';
+              
+              return {
+                date: rawDate,
+                type: type,
+                category: row['Category'] || 'Uncategorized',
+                description: description,
+                amount: isNaN(amount) ? 0 : amount
+              };
+            }).filter(t => t.amount > 0);
+            
+            if (mappedTransactions.length === 0) {
+               return { error: 'No valid transactions found in the file to import.' };
+            }
+            
+            // Call the bulk insert method on the connector
+            const connector = ConnectorFactory.getConnector(connectorType);
+            const config = { spreadsheetId: reqSpreadsheetId, oauth2Client };
+            const result = await connector.addTransactionsBulk(mappedTransactions, config);
+            
+            return {
+              success: true,
+              message: `Processed ${filename}. ${result.message}`,
+              importedCount: mappedTransactions.length
+            };
+          } catch (error: any) {
+            console.error("Bulk Import Error:", error);
+            return { error: 'Failed to process bulk journal: ' + error.message };
           }
         }
       })
