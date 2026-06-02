@@ -2116,7 +2116,7 @@ export default function AgentDetailPage() {
                               provider: 'google',
                               options: {
                                  scopes: 'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/spreadsheets',
-                                 redirectTo: window.location.origin + window.location.pathname
+                                 redirectTo: `${window.location.origin}/auth/callback?next=${window.location.pathname}`
                               }
                            });
                            if (error) console.error("OAuth error:", error);
