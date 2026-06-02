@@ -1907,7 +1907,25 @@ export default function AgentDetailPage() {
                  {/* Footer Actions */}
                  <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '32px', paddingTop: '32px', borderTop: '1px solid var(--border-main)' }}>
                     <button className="btn-secondary">Discard changes</button>
-                    <button className="btn-primary" style={{ padding: '12px 32px' }}>Save</button>
+                    <button 
+                      className="btn-primary" 
+                      style={{ padding: '12px 32px', transition: 'all 0.2s ease' }}
+                      onClick={(e) => {
+                        // Persist to local storage explicitly on save click
+                        if (activeConfigTab === 'Integrations') {
+                          localStorage.setItem(`ledger_${agentId}_v2`, ledgerSheetId);
+                        }
+                        const btn = e.currentTarget;
+                        btn.innerText = 'Saved!';
+                        btn.style.background = '#10b981';
+                        setTimeout(() => {
+                          btn.innerText = 'Save';
+                          btn.style.background = ''; // restore class default
+                        }, 2000);
+                      }}
+                    >
+                      Save
+                    </button>
                  </div>
 
               </div>
