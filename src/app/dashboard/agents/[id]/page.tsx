@@ -209,6 +209,7 @@ export default function AgentDetailPage() {
   const agentName = agentId.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
   const [activeTab, setActiveTab] = useState('Workflow');
+  const [workflowSubTab, setWorkflowSubTab] = useState('Logic Orchestrator');
   const [activeConfigTab, setActiveConfigTab] = useState('Settings');
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [isAddDataModalOpen, setIsAddDataModalOpen] = useState(false);
@@ -1227,220 +1228,417 @@ export default function AgentDetailPage() {
          )}
 
          {activeTab === 'Workflow' && (
-           <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-              <div className="flex-between">
-                 <div>
-                    <h2 style={{ fontSize: '18px', fontWeight: '800' }}>Logic Orchestrator</h2>
-                    <p className="text-sm" style={{ opacity: 0.5 }}>Configure the cognitive sequence of your agent</p>
-                 </div>
-                 <div className="flex-items-center" style={{ gap: '12px' }}>
-                    <button className="btn-secondary" style={{ fontSize: '12px' }} onClick={() => setWorkflowNodes(currentConfig.flow)}>Reset Flow</button>
-                    <button 
-                      className={`btn-primary flex-items-center ${isSimulating ? 'opacity-50 pointer-events-none' : ''}`} 
-                      style={{ gap: '8px', fontSize: '12px', background: isSimulating ? '#10b981' : '' }}
-                      onClick={runSimulation}
-                    >
-                       {isSimulating ? <Zap size={14} className="animate-pulse" /> : <Play size={14} />}
-                       {isSimulating ? 'Simulating...' : 'Run Simulation'}
-                    </button>
-                    <button className="btn-primary" style={{ fontSize: '12px' }} onClick={() => {
-                       const newNode = { id: Date.now(), type: 'action', label: 'New Action', desc: 'Describe the action...' };
-                       setWorkflowNodes([...workflowNodes, newNode]);
-                    }}>+ Add Logic Step</button>
-                 </div>
-              </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+               {/* Sub-tab Navigation for Workflow */}
+               <div style={{ display: 'flex', gap: '20px', borderBottom: '1px solid var(--border-main)', paddingBottom: '4px' }}>
+                  {['Logic Orchestrator', 'What i do'].map(subTab => (
+                     <button
+                        key={subTab}
+                        onClick={() => setWorkflowSubTab(subTab)}
+                        style={{
+                           padding: '12px 16px',
+                           background: 'transparent',
+                           border: 'none',
+                           borderBottom: workflowSubTab === subTab ? '2px solid #3b82f6' : '2px solid transparent',
+                           color: workflowSubTab === subTab ? '#3b82f6' : 'var(--text-muted)',
+                           fontWeight: workflowSubTab === subTab ? '700' : '500',
+                           fontSize: '13px',
+                           cursor: 'pointer',
+                           transition: 'all 0.2s ease',
+                           marginBottom: '-1px'
+                        }}
+                     >
+                        {subTab}
+                     </button>
+                  ))}
+               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: selectedNode ? '1fr 350px' : '1fr', gap: '24px', position: 'relative' }}>
-                 <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                    <div className="stat-card" style={{ 
-                       minHeight: '600px', 
-                       padding: '60px', 
-                       display: 'flex', 
-                       flexDirection: 'column', 
-                       alignItems: 'center',
-                       background: 'radial-gradient(circle at center, rgba(59, 130, 246, 0.03) 0%, transparent 70%)',
-                       overflow: 'hidden',
-                       position: 'relative'
-                    }}>
-                       <div style={{ position: 'absolute', inset: 0, opacity: 0.1, backgroundImage: 'radial-gradient(circle, white 1px, transparent 1px)', backgroundSize: '30px 30px' }} />
-                       
-                       <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '40px', width: '100%' }}>
-                          {workflowNodes.map((node, i) => (
-                            <React.Fragment key={node.id}>
-                               <div 
-                                 className={`node-card ${selectedNode?.id === node.id ? 'active' : ''}`}
-                                 onClick={() => setSelectedNode(node)}
-                                 style={{ 
-                                   width: '320px', padding: '20px', borderRadius: '16px', 
-                                   background: simActiveNode === node.id ? 'rgba(59, 130, 246, 0.2)' : selectedNode?.id === node.id ? 'rgba(59, 130, 246, 0.15)' : 'rgba(15, 23, 42, 0.9)', 
-                                   border: simActiveNode === node.id ? '2px solid #3b82f6' : selectedNode?.id === node.id ? '2px solid #3b82f6' : '1px solid var(--border-main)', 
-                                   textAlign: 'left', cursor: 'pointer', transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                                   transform: simActiveNode === node.id || selectedNode?.id === node.id ? 'scale(1.02)' : 'scale(1)',
-                                   boxShadow: simActiveNode === node.id ? '0 0 40px rgba(59, 130, 246, 0.4)' : selectedNode?.id === node.id ? '0 0 30px rgba(59, 130, 246, 0.2)' : 'none',
-                                   position: 'relative'
-                                 }}
-                               >
-                                  {simActiveNode === node.id && (
-                                    <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '2px', background: '#3b82f6', overflow: 'hidden' }}>
-                                       <div style={{ height: '100%', width: '100%', background: 'white', animation: 'shimmer 1.5s infinite' }} />
+               {workflowSubTab === 'Logic Orchestrator' ? (
+                  <>
+                     <div className="flex-between">
+                        <div>
+                           <h2 style={{ fontSize: '18px', fontWeight: '800' }}>Logic Orchestrator</h2>
+                           <p className="text-sm" style={{ opacity: 0.5 }}>Configure the cognitive sequence of your agent</p>
+                        </div>
+                        <div className="flex-items-center" style={{ gap: '12px' }}>
+                           <button className="btn-secondary" style={{ fontSize: '12px' }} onClick={() => setWorkflowNodes(currentConfig.flow)}>Reset Flow</button>
+                           <button 
+                             className={`btn-primary flex-items-center ${isSimulating ? 'opacity-50 pointer-events-none' : ''}`} 
+                             style={{ gap: '8px', fontSize: '12px', background: isSimulating ? '#10b981' : '' }}
+                             onClick={runSimulation}
+                           >
+                              {isSimulating ? <Zap size={14} className="animate-pulse" /> : <Play size={14} />}
+                              {isSimulating ? 'Simulating...' : 'Run Simulation'}
+                           </button>
+                           <button className="btn-primary" style={{ fontSize: '12px' }} onClick={() => {
+                              const newNode = { id: Date.now(), type: 'action', label: 'New Action', desc: 'Describe the action...' };
+                              setWorkflowNodes([...workflowNodes, newNode]);
+                           }}>+ Add Logic Step</button>
+                        </div>
+                     </div>
+
+                     <div style={{ display: 'grid', gridTemplateColumns: selectedNode ? '1fr 350px' : '1fr', gap: '24px', position: 'relative' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                           <div className="stat-card" style={{ 
+                              minHeight: '600px', 
+                              padding: '60px', 
+                              display: 'flex', 
+                              flexDirection: 'column', 
+                              alignItems: 'center',
+                              background: 'radial-gradient(circle at center, rgba(59, 130, 246, 0.03) 0%, transparent 70%)',
+                              overflow: 'hidden',
+                              position: 'relative'
+                           }}>
+                              <div style={{ position: 'absolute', inset: 0, opacity: 0.1, backgroundImage: 'radial-gradient(circle, white 1px, transparent 1px)', backgroundSize: '30px 30px' }} />
+                              
+                              <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '40px', width: '100%' }}>
+                                 {workflowNodes.map((node, i) => (
+                                   <React.Fragment key={node.id}>
+                                      <div 
+                                        className={`node-card ${selectedNode?.id === node.id ? 'active' : ''}`}
+                                        onClick={() => setSelectedNode(node)}
+                                        style={{ 
+                                          width: '320px', padding: '20px', borderRadius: '16px', 
+                                          background: simActiveNode === node.id ? 'rgba(59, 130, 246, 0.2)' : selectedNode?.id === node.id ? 'rgba(59, 130, 246, 0.15)' : 'rgba(15, 23, 42, 0.9)', 
+                                          border: simActiveNode === node.id ? '2px solid #3b82f6' : selectedNode?.id === node.id ? '2px solid #3b82f6' : '1px solid var(--border-main)', 
+                                          textAlign: 'left', cursor: 'pointer', transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                                          transform: simActiveNode === node.id || selectedNode?.id === node.id ? 'scale(1.02)' : 'scale(1)',
+                                          boxShadow: simActiveNode === node.id ? '0 0 40px rgba(59, 130, 246, 0.4)' : selectedNode?.id === node.id ? '0 0 30px rgba(59, 130, 246, 0.2)' : 'none',
+                                          position: 'relative'
+                                        }}
+                                      >
+                                         {simActiveNode === node.id && (
+                                           <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '2px', background: '#3b82f6', overflow: 'hidden' }}>
+                                              <div style={{ height: '100%', width: '100%', background: 'white', animation: 'shimmer 1.5s infinite' }} />
+                                           </div>
+                                         )}
+                                         <div className="flex-between" style={{ marginBottom: '12px' }}>
+                                            <div className="flex-items-center" style={{ gap: '8px' }}>
+                                               {node.type === 'trigger' && <Activity size={16} color="#3b82f6" />}
+                                               {node.type === 'condition' && <GitBranch size={16} color="#f59e0b" />}
+                                               {node.type === 'action' && <Terminal size={16} color="#10b981" />}
+                                               <span className="uppercase-label" style={{ fontSize: '9px', fontWeight: '800', letterSpacing: '0.1em' }}>{node.type}</span>
+                                            </div>
+                                            <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: node.type === 'trigger' ? '#3b82f6' : node.type === 'condition' ? '#f59e0b' : '#10b981' }} />
+                                         </div>
+                                         <h4 style={{ fontSize: '15px', fontWeight: '800', marginBottom: '6px', color: 'white' }}>{node.label}</h4>
+                                         <p style={{ fontSize: '11px', color: 'var(--text-dim)', lineHeight: '1.5' }}>{node.desc}</p>
+                                      </div>
+                                      
+                                      {i < workflowNodes.length - 1 && (
+                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative' }}>
+                                           <div style={{ width: '2px', height: '60px', background: 'linear-gradient(to bottom, #3b82f6, rgba(59, 130, 246, 0.1))' }} />
+                                           <div style={{ 
+                                              position: 'absolute', top: '50%', transform: 'translateY(-50%)', zIndex: 2,
+                                              width: '32px', height: '32px', borderRadius: '50%', background: '#02040a', border: '1px solid #3b82f6', 
+                                              display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'all 0.2s ease',
+                                              boxShadow: '0 0 15px rgba(59, 130, 246, 0.3)'
+                                           }}
+                                           onClick={(e) => {
+                                              e.stopPropagation();
+                                              const newNode = { id: Date.now(), type: 'action', label: 'Inserted Step', desc: 'Next sequence in logic...' };
+                                              const newNodes = [...workflowNodes];
+                                              newNodes.splice(i + 1, 0, newNode);
+                                              setWorkflowNodes(newNodes);
+                                           }}>
+                                              <Plus size={16} color="#3b82f6" />
+                                           </div>
+                                           <div style={{ 
+                                              position: 'absolute', bottom: '-8px', width: '0', height: '0', 
+                                              borderLeft: '6px solid transparent', borderRight: '6px solid transparent', borderTop: '8px solid #3b82f6' 
+                                           }} />
+                                        </div>
+                                      )}
+                                   </React.Fragment>
+                                 ))}
+                              </div>
+                           </div>
+
+                           {isSimulating && (
+                              <div className="stat-card animate-slide-up" style={{ 
+                                padding: '24px', 
+                                background: 'rgba(2, 4, 10, 0.8)', 
+                                border: '1px solid #3b82f6',
+                                boxShadow: '0 0 40px rgba(59, 130, 246, 0.1)',
+                                backdropFilter: 'blur(20px)'
+                              }}>
+                                 <div className="flex-between" style={{ marginBottom: '16px' }}>
+                                    <div className="flex-items-center" style={{ gap: '12px' }}>
+                                       <div className="flex-items-center" style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(59, 130, 246, 0.1)', justifyContent: 'center' }}>
+                                          <Zap size={16} color="#3b82f6" className="animate-pulse" />
+                                       </div>
+                                       <div>
+                                          <span style={{ fontSize: '11px', fontWeight: '800', color: '#3b82f6', textTransform: 'uppercase', letterSpacing: '0.1em', display: 'block' }}>Neural Execution Console</span>
+                                          <span style={{ fontSize: '10px', color: 'var(--text-dim)' }}>Live mission status and cognitive logs</span>
+                                       </div>
                                     </div>
-                                  )}
-                                  <div className="flex-between" style={{ marginBottom: '12px' }}>
-                                     <div className="flex-items-center" style={{ gap: '8px' }}>
-                                        {node.type === 'trigger' && <Activity size={16} color="#3b82f6" />}
-                                        {node.type === 'condition' && <GitBranch size={16} color="#f59e0b" />}
-                                        {node.type === 'action' && <Terminal size={16} color="#10b981" />}
-                                        <span className="uppercase-label" style={{ fontSize: '9px', fontWeight: '800', letterSpacing: '0.1em' }}>{node.type}</span>
-                                     </div>
-                                     <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: node.type === 'trigger' ? '#3b82f6' : node.type === 'condition' ? '#f59e0b' : '#10b981' }} />
-                                  </div>
-                                  <h4 style={{ fontSize: '15px', fontWeight: '800', marginBottom: '6px', color: 'white' }}>{node.label}</h4>
-                                  <p style={{ fontSize: '11px', color: 'var(--text-dim)', lineHeight: '1.5' }}>{node.desc}</p>
-                               </div>
-                               
-                               {i < workflowNodes.length - 1 && (
-                                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative' }}>
-                                    <div style={{ width: '2px', height: '60px', background: 'linear-gradient(to bottom, #3b82f6, rgba(59, 130, 246, 0.1))' }} />
-                                    <div style={{ 
-                                       position: 'absolute', top: '50%', transform: 'translateY(-50%)', zIndex: 2,
-                                       width: '32px', height: '32px', borderRadius: '50%', background: '#02040a', border: '1px solid #3b82f6', 
-                                       display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'all 0.2s ease',
-                                       boxShadow: '0 0 15px rgba(59, 130, 246, 0.3)'
-                                    }}
-                                    onClick={(e) => {
-                                       e.stopPropagation();
-                                       const newNode = { id: Date.now(), type: 'action', label: 'Inserted Step', desc: 'Next sequence in logic...' };
-                                       const newNodes = [...workflowNodes];
-                                       newNodes.splice(i + 1, 0, newNode);
-                                       setWorkflowNodes(newNodes);
-                                    }}>
-                                       <Plus size={16} color="#3b82f6" />
+                                    <div className="flex-items-center" style={{ gap: '8px', padding: '4px 12px', background: 'rgba(16, 185, 129, 0.1)', borderRadius: '100px' }}>
+                                       <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981' }} className="animate-pulse" />
+                                       <span style={{ fontSize: '10px', color: '#10b981', fontWeight: '700' }}>ACTIVE SIMULATION</span>
                                     </div>
-                                    <div style={{ 
-                                       position: 'absolute', bottom: '-8px', width: '0', height: '0', 
-                                       borderLeft: '6px solid transparent', borderRight: '6px solid transparent', borderTop: '8px solid #3b82f6' 
-                                    }} />
                                  </div>
-                               )}
-                            </React.Fragment>
-                          ))}
-                       </div>
-                    </div>
+                                 
+                                 <div style={{ 
+                                   display: 'flex', flexDirection: 'column', gap: '8px', 
+                                   background: 'rgba(0,0,0,0.3)', padding: '16px', borderRadius: '12px',
+                                   fontFamily: 'monospace', fontSize: '12px', minHeight: '120px', maxHeight: '200px', overflowY: 'auto'
+                                 }}>
+                                    {simLogs.map((log, i) => (
+                                      <div key={i} style={{ color: log.startsWith('[SYSTEM]') ? '#3b82f6' : log.startsWith('[THOUGHT]') ? 'rgba(255,255,255,0.7)' : log.startsWith('[DECISION]') ? '#f59e0b' : '#10b981', display: 'flex', gap: '12px' }}>
+                                         <span style={{ opacity: 0.3 }}>{new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+                                         <span>{log}</span>
+                                      </div>
+                                    ))}
+                                 </div>
+                              </div>
+                           )}
+                        </div>
 
-                    {isSimulating && (
-                       <div className="stat-card animate-slide-up" style={{ 
-                         padding: '24px', 
-                         background: 'rgba(2, 4, 10, 0.8)', 
-                         border: '1px solid #3b82f6',
-                         boxShadow: '0 0 40px rgba(59, 130, 246, 0.1)',
-                         backdropFilter: 'blur(20px)'
-                       }}>
-                          <div className="flex-between" style={{ marginBottom: '16px' }}>
-                             <div className="flex-items-center" style={{ gap: '12px' }}>
-                                <div className="flex-items-center" style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(59, 130, 246, 0.1)', justifyContent: 'center' }}>
-                                   <Zap size={16} color="#3b82f6" className="animate-pulse" />
-                                </div>
-                                <div>
-                                   <span style={{ fontSize: '11px', fontWeight: '800', color: '#3b82f6', textTransform: 'uppercase', letterSpacing: '0.1em', display: 'block' }}>Neural Execution Console</span>
-                                   <span style={{ fontSize: '10px', color: 'var(--text-dim)' }}>Live mission status and cognitive logs</span>
-                                </div>
-                             </div>
-                             <div className="flex-items-center" style={{ gap: '8px', padding: '4px 12px', background: 'rgba(16, 185, 129, 0.1)', borderRadius: '100px' }}>
-                                <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981' }} className="animate-pulse" />
-                                <span style={{ fontSize: '10px', color: '#10b981', fontWeight: '700' }}>ACTIVE SIMULATION</span>
-                             </div>
-                          </div>
-                          
-                          <div style={{ 
-                            display: 'flex', flexDirection: 'column', gap: '8px', 
-                            background: 'rgba(0,0,0,0.3)', padding: '16px', borderRadius: '12px',
-                            fontFamily: 'monospace', fontSize: '12px', minHeight: '120px', maxHeight: '200px', overflowY: 'auto'
-                          }}>
-                             {simLogs.map((log, i) => (
-                               <div key={i} style={{ color: log.startsWith('[SYSTEM]') ? '#3b82f6' : log.startsWith('[THOUGHT]') ? 'rgba(255,255,255,0.7)' : log.startsWith('[DECISION]') ? '#f59e0b' : '#10b981', display: 'flex', gap: '12px' }}>
-                                  <span style={{ opacity: 0.3 }}>{new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
-                                  <span>{log}</span>
-                               </div>
-                             ))}
-                          </div>
-                       </div>
-                    )}
-                 </div>
+                        {selectedNode && (
+                           <div className="stat-card" style={{ height: 'fit-content', position: 'sticky', top: '24px', padding: '32px', border: '1px solid var(--border-main)', background: 'rgba(2, 4, 10, 0.4)', backdropFilter: 'blur(20px)' }}>
+                              <div className="flex-between" style={{ marginBottom: '32px' }}>
+                                 <h3 style={{ fontSize: '18px', fontWeight: '800' }}>Tune Logic</h3>
+                                 <button onClick={() => setSelectedNode(null)} style={{ background: 'transparent', border: 'none', color: 'var(--text-dim)', cursor: 'pointer' }}>
+                                    <X size={20} />
+                                 </button>
+                              </div>
 
-                 {selectedNode && (
-                    <div className="stat-card" style={{ height: 'fit-content', position: 'sticky', top: '24px', padding: '32px', border: '1px solid var(--border-main)', background: 'rgba(2, 4, 10, 0.4)', backdropFilter: 'blur(20px)' }}>
-                       <div className="flex-between" style={{ marginBottom: '32px' }}>
-                          <h3 style={{ fontSize: '18px', fontWeight: '800' }}>Tune Logic</h3>
-                          <button onClick={() => setSelectedNode(null)} style={{ background: 'transparent', border: 'none', color: 'var(--text-dim)', cursor: 'pointer' }}>
-                             <X size={20} />
-                          </button>
-                       </div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                                 <div>
+                                    <label className="uppercase-label" style={{ fontSize: '10px', display: 'block', marginBottom: '8px' }}>Node Type</label>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+                                       {['trigger', 'condition', 'action'].map(t => (
+                                         <button 
+                                           key={t}
+                                           onClick={() => updateNode(selectedNode.id, { type: t })}
+                                           style={{ 
+                                              padding: '8px', borderRadius: '8px', fontSize: '10px', fontWeight: '700', textTransform: 'capitalize',
+                                              background: selectedNode.type === t ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
+                                              border: selectedNode.type === t ? '1px solid #3b82f6' : '1px solid var(--border-main)',
+                                              color: selectedNode.type === t ? '#3b82f6' : 'var(--text-dim)',
+                                              cursor: 'pointer'
+                                           }}
+                                         >
+                                            {t}
+                                         </button>
+                                       ))}
+                                    </div>
+                                 </div>
 
-                       <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                          <div>
-                             <label className="uppercase-label" style={{ fontSize: '10px', display: 'block', marginBottom: '8px' }}>Node Type</label>
-                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
-                                {['trigger', 'condition', 'action'].map(t => (
-                                  <button 
-                                    key={t}
-                                    onClick={() => updateNode(selectedNode.id, { type: t })}
-                                    style={{ 
-                                       padding: '8px', borderRadius: '8px', fontSize: '10px', fontWeight: '700', textTransform: 'capitalize',
-                                       background: selectedNode.type === t ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
-                                       border: selectedNode.type === t ? '1px solid #3b82f6' : '1px solid var(--border-main)',
-                                       color: selectedNode.type === t ? '#3b82f6' : 'var(--text-dim)',
-                                       cursor: 'pointer'
-                                    }}
-                                  >
-                                     {t}
-                                  </button>
-                                ))}
-                             </div>
-                          </div>
+                                 <div>
+                                    <label className="uppercase-label" style={{ fontSize: '10px', display: 'block', marginBottom: '8px' }}>Label</label>
+                                    <input 
+                                      value={selectedNode.label}
+                                      onChange={(e) => updateNode(selectedNode.id, { label: e.target.value })}
+                                      style={{ width: '100%', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-main)', borderRadius: '8px', padding: '12px', color: 'white', outline: 'none', fontSize: '13px' }}
+                                    />
+                                 </div>
 
-                          <div>
-                             <label className="uppercase-label" style={{ fontSize: '10px', display: 'block', marginBottom: '8px' }}>Label</label>
-                             <input 
-                               value={selectedNode.label}
-                               onChange={(e) => updateNode(selectedNode.id, { label: e.target.value })}
-                               style={{ width: '100%', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-main)', borderRadius: '8px', padding: '12px', color: 'white', outline: 'none', fontSize: '13px' }}
-                             />
-                          </div>
+                                 <div>
+                                    <label className="uppercase-label" style={{ fontSize: '10px', display: 'block', marginBottom: '8px' }}>Instruction / Description</label>
+                                    <textarea 
+                                      value={selectedNode.desc}
+                                      onChange={(e) => updateNode(selectedNode.id, { desc: e.target.value })}
+                                      style={{ width: '100%', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-main)', borderRadius: '8px', padding: '12px', color: 'white', outline: 'none', fontSize: '13px', resize: 'none' }}
+                                      rows={4}
+                                    />
+                                 </div>
 
-                          <div>
-                             <label className="uppercase-label" style={{ fontSize: '10px', display: 'block', marginBottom: '8px' }}>Instruction / Description</label>
-                             <textarea 
-                               value={selectedNode.desc}
-                               onChange={(e) => updateNode(selectedNode.id, { desc: e.target.value })}
-                               style={{ width: '100%', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-main)', borderRadius: '8px', padding: '12px', color: 'white', outline: 'none', fontSize: '13px', resize: 'none' }}
-                               rows={4}
-                             />
-                          </div>
+                                 <div style={{ padding: '20px', background: 'rgba(59, 130, 246, 0.05)', borderRadius: '12px', border: '1px dashed rgba(59, 130, 246, 0.2)' }}>
+                                    <div className="flex-items-center" style={{ gap: '8px', marginBottom: '8px' }}>
+                                       <Zap size={14} color="#3b82f6" />
+                                       <span style={{ fontSize: '11px', fontWeight: '800', color: '#3b82f6' }}>AI Cognitive Hint</span>
+                                    </div>
+                                    <p style={{ fontSize: '11px', opacity: 0.6, lineHeight: '1.4' }}>
+                                       {selectedNode.type === 'trigger' ? "Define the specific data event that wakes up the agent." : 
+                                        selectedNode.type === 'condition' ? "The agent will use its LLM to evaluate this logic gate." : 
+                                        "The agent will execute a specific API call or tool based on this step."}
+                                    </p>
+                                 </div>
 
-                          <div style={{ padding: '20px', background: 'rgba(59, 130, 246, 0.05)', borderRadius: '12px', border: '1px dashed rgba(59, 130, 246, 0.2)' }}>
-                             <div className="flex-items-center" style={{ gap: '8px', marginBottom: '8px' }}>
-                                <Zap size={14} color="#3b82f6" />
-                                <span style={{ fontSize: '11px', fontWeight: '800', color: '#3b82f6' }}>AI Cognitive Hint</span>
-                             </div>
-                             <p style={{ fontSize: '11px', opacity: 0.6, lineHeight: '1.4' }}>
-                                {selectedNode.type === 'trigger' ? "Define the specific data event that wakes up the agent." : 
-                                 selectedNode.type === 'condition' ? "The agent will use its LLM to evaluate this logic gate." : 
-                                 "The agent will execute a specific API call or tool based on this step."}
-                             </p>
-                          </div>
+                                 <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
+                                    <button className="btn-secondary" style={{ flex: 1 }} onClick={() => {
+                                       setWorkflowNodes(workflowNodes.filter(n => n.id !== selectedNode.id));
+                                       setSelectedNode(null);
+                                    }}>Delete Node</button>
+                                    <button className="btn-primary" style={{ flex: 2 }} onClick={() => setSelectedNode(null)}>Save Logic</button>
+                                 </div>
+                              </div>
+                           </div>
+                        )}
+                     </div>
+                  </>
+               ) : (
+                  // WHAT I DO PANEL (AESTHETIC & ATTRACTIVE)
+                  (() => {
+                     const productivityData: Record<string, { summary: string; whatItDoes: string[]; productivityGains: string[]; timeSaved: string; accuracy: string }> = {
+                        'executive-assistant': {
+                           summary: 'Your high-performance operational copilot. Handles calendar management, inbox filtering, weekly summaries, and drafts context-aware replies, freeing your mind for executive tasks.',
+                           whatItDoes: [
+                              'Scans inbound Gmail & Slack messages to detect meet & scheduling intents.',
+                              'Resolves availability conflicts across personal and work calendars.',
+                              'Synthesizes full weekly inbox reports with counts of received, read, and replied mails.',
+                              'Drafts contextual, professional email responses for review before dispatch.'
+                           ],
+                           productivityGains: [
+                              'Saves up to 10-12 hours per week on scheduling logistics and email triage.',
+                              'Prevents calendar double-bookings automatically using real-time synchronization.',
+                              'Surfaces crucial and attention-needing items dynamically to eliminate inbox anxiety.'
+                           ],
+                           timeSaved: '10-12 hrs/wk',
+                           accuracy: '98.4%'
+                        },
+                        'financial-controller': {
+                           summary: 'Strategic finance intelligence designed to keep bank books, QuickBooks, Shopify, and ledgers in absolute sync. Eliminates manual bookkeeping errors completely.',
+                           whatItDoes: [
+                              'Pulls raw bank feeds and maps transactions to your Chart of Accounts.',
+                              'Syncs ledger data directly to Google Sheets or QuickBooks in real-time.',
+                              'Generates income statement audits and projected cash flow reports.',
+                              'Detects OPEX anomalies and alerts the team on cash flow warnings.'
+                           ],
+                           productivityGains: [
+                              'Reclaims 80%+ of time spent on recurring ledger reconciliation.',
+                              'Maintains 24/7 audit readiness with instant spreadsheet grounding.',
+                              'Flags unauthorized expense surges before they leak cash.'
+                           ],
+                           timeSaved: '15+ hrs/wk',
+                           accuracy: '99.1%'
+                        },
+                        'financial-sentry': {
+                           summary: 'Autonomous spend compliance officer. Automatically audits invoices and expenses for policy compliance, arithmetic mismatches, and duplicates.',
+                           whatItDoes: [
+                              'Performs instant OCR reading on PDF/image invoice uploads.',
+                              'Validates invoice line items against invoice totals to catch arithmetic errors.',
+                              'Cross-checks new invoices against historical records to catch double-billing.',
+                              'Generates risk scores and highlights policy infractions before authorization.'
+                           ],
+                           productivityGains: [
+                              'Eliminates duplicate payments and billing errors before cash leaves the business.',
+                              'Reduces audit overhead from hours to a few clicks.',
+                              'Ensures strict policy adherence across all departments.'
+                           ],
+                           timeSaved: '8-10 hrs/wk',
+                           accuracy: '99.8%'
+                        }
+                     };
 
-                          <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
-                             <button className="btn-secondary" style={{ flex: 1 }} onClick={() => {
-                                setWorkflowNodes(workflowNodes.filter(n => n.id !== selectedNode.id));
-                                setSelectedNode(null);
-                             }}>Delete Node</button>
-                             <button className="btn-primary" style={{ flex: 2 }} onClick={() => setSelectedNode(null)}>Save Logic</button>
-                          </div>
-                       </div>
-                    </div>
-                 )}
-              </div>
-           </div>
+                     const details = productivityData[agentId] || {
+                        summary: `An autonomous enterprise teammate trained to ingest documentation, synchronize tool connections, and execute complex business logic chains.`,
+                        whatItDoes: [
+                           `Executes stateful workflows defined in the Logic Orchestrator.`,
+                           `Integrates knowledge bases and groundings for contextual answers.`,
+                           `Synchronizes systems and sends proactive alerts on crucial changes.`,
+                           `Automates back-office processes without manual context switching.`
+                        ],
+                        productivityGains: [
+                           `Saves significant weekly team hours by performing backend operations in the background.`,
+                           `Reduces human error margins across repetitive procedures.`,
+                           `Accelerates project speed by linking databases and notifications.`
+                        ],
+                        timeSaved: '8-12 hrs/wk',
+                        accuracy: '98.5%'
+                     };
+
+                     return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }} className="animate-fade-in">
+                           {/* Hero Overview */}
+                           <div style={{ 
+                              padding: '40px', 
+                              borderRadius: '20px', 
+                              background: 'linear-gradient(135deg, rgba(37, 99, 235, 0.04) 0%, rgba(124, 58, 237, 0.04) 100%)', 
+                              border: '1px solid rgba(255, 255, 255, 0.05)',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '16px',
+                              position: 'relative',
+                              overflow: 'hidden'
+                           }}>
+                              <div style={{ position: 'absolute', right: '-50px', top: '-50px', width: '200px', height: '200px', borderRadius: '50%', background: 'rgba(59, 130, 246, 0.1)', filter: 'blur(80px)' }} />
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                 <BrainCircuit size={24} color="#3b82f6" />
+                                 <span style={{ fontSize: '11px', fontWeight: '800', color: '#3b82f6', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Core Purpose</span>
+                              </div>
+                              <h3 style={{ fontSize: '20px', fontWeight: '800', color: 'white', lineHeight: '1.4' }}>{agentName} Capabilities</h3>
+                              <p style={{ fontSize: '15px', color: 'var(--text-muted)', lineHeight: '1.6', maxWidth: '800px' }}>
+                                 {details.summary}
+                              </p>
+                           </div>
+
+                           {/* Features & Productivity Split */}
+                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px' }}>
+                              
+                              {/* WHAT I DO COLUMN */}
+                              <div className="stat-card" style={{ padding: '32px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                    <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10b981' }}>
+                                       <Zap size={18} />
+                                    </div>
+                                    <div>
+                                       <h4 style={{ fontSize: '15px', fontWeight: '800', color: 'white' }}>Key Capabilities</h4>
+                                       <p style={{ fontSize: '11px', color: 'var(--text-dim)' }}>Core automation tasks performed by the agent</p>
+                                    </div>
+                                 </div>
+                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                    {details.whatItDoes.map((item, idx) => (
+                                       <div key={idx} style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+                                          <div style={{ width: '20px', height: '20px', borderRadius: '50%', background: 'rgba(16, 185, 129, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10b981', flexShrink: 0, marginTop: '2px' }}>
+                                             <CheckCircle2 size={12} />
+                                          </div>
+                                          <p style={{ fontSize: '13px', color: '#cbd5e1', lineHeight: '1.5' }}>{item}</p>
+                                       </div>
+                                    ))}
+                                 </div>
+                              </div>
+
+                              {/* PRODUCTIVITY BENEFITS COLUMN */}
+                              <div className="stat-card" style={{ padding: '32px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                    <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: 'rgba(245, 158, 11, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#f59e0b' }}>
+                                       <TrendingUp size={18} />
+                                    </div>
+                                    <div>
+                                       <h4 style={{ fontSize: '15px', fontWeight: '800', color: 'white' }}>Productivity Gains</h4>
+                                       <p style={{ fontSize: '11px', color: 'var(--text-dim)' }}>Why users love integrating this agent</p>
+                                    </div>
+                                 </div>
+                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                    {details.productivityGains.map((item, idx) => (
+                                       <div key={idx} style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+                                          <div style={{ width: '20px', height: '20px', borderRadius: '50%', background: 'rgba(245, 158, 11, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#f59e0b', flexShrink: 0, marginTop: '2px' }}>
+                                             <Zap size={10} />
+                                          </div>
+                                          <p style={{ fontSize: '13px', color: '#cbd5e1', lineHeight: '1.5' }}>{item}</p>
+                                       </div>
+                                    ))}
+                                 </div>
+                              </div>
+
+                           </div>
+
+                           {/* ROI Dashboard Highlight */}
+                           <div className="stat-card" style={{ padding: '32px', background: 'rgba(2, 4, 10, 0.4)' }}>
+                              <h4 style={{ fontSize: '14px', fontWeight: '800', color: 'white', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '24px', opacity: 0.7 }}>Performance Outlook</h4>
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '24px' }}>
+                                 <div style={{ padding: '20px', background: 'rgba(255,255,255,0.01)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.03)' }}>
+                                    <p style={{ fontSize: '11px', opacity: 0.5, marginBottom: '6px', fontWeight: '700' }}>AVERAGE TIME SAVED</p>
+                                    <p style={{ fontSize: '24px', fontWeight: '800', color: '#3b82f6' }}>{details.timeSaved}</p>
+                                 </div>
+                                 <div style={{ padding: '20px', background: 'rgba(255,255,255,0.01)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.03)' }}>
+                                    <p style={{ fontSize: '11px', opacity: 0.5, marginBottom: '6px', fontWeight: '700' }}>DECISION ACCURACY</p>
+                                    <p style={{ fontSize: '24px', fontWeight: '800', color: '#10b981' }}>{details.accuracy}</p>
+                                 </div>
+                                 <div style={{ padding: '20px', background: 'rgba(255,255,255,0.01)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.03)' }}>
+                                    <p style={{ fontSize: '11px', opacity: 0.5, marginBottom: '6px', fontWeight: '700' }}>INTEGRATION COVERAGE</p>
+                                    <p style={{ fontSize: '24px', fontWeight: '800', color: '#8b5cf6' }}>100% Grounded</p>
+                                 </div>
+                              </div>
+                           </div>
+
+                        </div>
+                     );
+                  })()
+               )}
+            </div>
          )}
 
          {activeTab === 'Knowledge' && (
