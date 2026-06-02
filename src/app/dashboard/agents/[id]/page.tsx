@@ -27,6 +27,7 @@ const allSources = [
   { name: 'Shopify', icon: Package, desc: 'Monitor orders and customer data', category: 'E-commerce' },
   { name: 'Notion', icon: FileText, desc: 'Grounding in wiki and project docs', category: 'Knowledge' },
   { name: 'Slack', icon: MessageSquare, desc: 'Real-time team communication sync', category: 'Communication' },
+  { name: 'Google Workspace', icon: Cloud, desc: 'Connect Google Drive & Sheets', category: 'Productivity' }
 ];
 
 const agentConfigs: Record<string, any> = {
@@ -44,7 +45,7 @@ const agentConfigs: Record<string, any> = {
   },
   'financial-controller': { 
      role: 'Strategic Finance', icon: <Calculator size={24}/>, 
-     grounding: ['QuickBooks', 'Xero', 'Shopify', 'Notion'],
+     grounding: ['QuickBooks', 'Xero', 'Shopify', 'Notion', 'Google Workspace'],
      flow: [
        { id: 1, type: 'trigger', label: 'Bank Sync', desc: 'Triggered when new transactions are pulled from bank or ledger' },
        { id: 2, type: 'action', label: 'Categorize Txns', desc: 'Automatically map transactions to the Chart of Accounts' },
@@ -605,7 +606,7 @@ export default function AgentDetailPage() {
       const token = session?.provider_token || getCookie('provider_token');
       if (token) {
         setProviderToken(token);
-        setConnectionStates(prev => ({ ...prev, 'Gmail': 'connected', 'Google Calendar': 'connected' }));
+        setConnectionStates(prev => ({ ...prev, 'Gmail': 'connected', 'Google Calendar': 'connected', 'Google Workspace': 'connected' }));
         if (session?.user?.email) {
           setConnectEmail(session.user.email);
         }
@@ -2108,9 +2109,9 @@ export default function AgentDetailPage() {
                    const state = connectionStates[source.name] || (source.name === 'Notion' ? 'connected' : 'unconnected');
                    
                    const handleConnect = async () => {
-                     const triggerModalServices = ['Gmail', 'Google Calendar', 'Microsoft Outlook'];
+                     const triggerModalServices = ['Gmail', 'Google Calendar', 'Microsoft Outlook', 'Google Workspace'];
                      if (triggerModalServices.includes(source.name)) {
-                        if (source.name === 'Gmail' || source.name === 'Google Calendar') {
+                        if (source.name === 'Gmail' || source.name === 'Google Calendar' || source.name === 'Google Workspace') {
                            const { error } = await supabase.auth.signInWithOAuth({
                               provider: 'google',
                               options: {
